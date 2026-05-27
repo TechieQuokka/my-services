@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+.wrangler/
+package-lock.json
+
+# Environment & Secrets
+.env
+.env.*
+.dev.vars
+.dev.key
+
+# Build & Temp
+dist/
+temp/
+*.log
+
+# OS & Editors
+.DS_Store
+.vscode/
+.idea/
+Thumbs.db
