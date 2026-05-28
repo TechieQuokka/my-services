@@ -1,17 +1,23 @@
 import { html } from 'hono/html'
-import { imagekitUrl } from '../../lib/imagekit'
+
 import { Service } from '../../types'
 
 export const HomePage = () => html`
   <div class="page active" id="page-home">
     <section class="hero">
-      <div>
+      <div class="hero-left">
         <div class="hero-label">현재 프로젝트 수주 가능</div>
-        <h1>웹개발 &amp;<br><em>AI 자동화</em></h1>
+        <h1>웹 &amp; AI 기반<br><em>SI 개발</em></h1>
         <p class="hero-desc">
-          스타트업과 소상공인을 위한 웹 서비스 개발, AI 업무 자동화.
-          복잡한 과정 없이 빠르게 만들고, 직접 소통합니다.
+          스타트업·중소기업의 업무 시스템과 웹 서비스를 직접 개발합니다.
+          PM 없이 직접 소통하고, 빠르게 납품합니다.
         </p>
+        <div class="hero-tags">
+          <span class="htag">제조</span>
+          <span class="htag">유통</span>
+          <span class="htag">서비스업</span>
+          <span class="htag">스타트업</span>
+        </div>
         <div class="hero-btns">
           <button class="btn-dark" onclick="showPage('services')">서비스 보기</button>
           <button class="btn-ghost" onclick="showPage('contact')">무료 상담</button>
@@ -19,11 +25,13 @@ export const HomePage = () => html`
       </div>
       <div class="hero-right">
         <div class="hero-img-wrap">
-          <img src="https://thumbs.dreamstime.com/z/sample-jpeg-fluffy-white-pomeranian-puppy-sits-looks-camera-colorful-balls-front-364720569.jpg?ct=jpeg" alt="Adam Software" loading="lazy"/>
+          <img src="https://ik.imagekit.io/beethoven/ChatGPT%20Image%20May%2028,%202026,%2002_44_17%20PM-min.png" alt="Adam Software — 웹 & AI SI 개발" loading="lazy"/>
         </div>
         <div class="hero-stats">
           <div class="hstat"><div class="hstat-num">3+</div><div class="hstat-lbl">Years</div></div>
+          <div class="hsep"></div>
           <div class="hstat"><div class="hstat-num">20+</div><div class="hstat-lbl">Projects</div></div>
+          <div class="hsep"></div>
           <div class="hstat"><div class="hstat-num">24h</div><div class="hstat-lbl">Response</div></div>
         </div>
       </div>
@@ -44,8 +52,8 @@ export const HomePage = () => html`
           <div class="sec-eyebrow">About</div>
           <div class="sec-heading">작지만<br><em>빠릅니다</em></div>
           <p class="sec-desc">
-            1인 스튜디오입니다. 덕분에 의사결정이 빠르고, 고객과 직접 대화합니다.
-            PM을 거치지 않아도 되고, 엉뚱한 결과물이 나오는 일도 없습니다.
+            1인 SI 스튜디오입니다. 제조·유통·서비스업의 업무 자동화부터
+            스타트업의 웹 서비스 구축까지, 직접 개발하고 직접 소통합니다.
           </p>
           <p class="sec-desc">
             Cloudflare Workers 기반으로 개발해 서버 관리 부담이 없고,
@@ -63,7 +71,7 @@ export const HomePage = () => html`
           <div class="feat-item">
             <div class="feat-num">02</div>
             <div>
-              <div class="feat-title">AI 자동화</div>
+              <div class="feat-title">AI 업무 자동화</div>
               <div class="feat-desc">반복 업무를 AI 파이프라인으로 대체합니다. 운영 비용과 시간을 줄여드립니다.</div>
             </div>
           </div>
@@ -99,7 +107,7 @@ export const ServicesPage = (services: Service[]) => html`
         <div class="svc-card" data-cat="${s.category}" onclick="location.href='/services/${s.id}'">
           <div class="svc-thumb">
             ${s.thumb_url
-              ? html`<img src="${imagekitUrl(s.thumb_url,{w:800,h:600,q:82})}" alt="${s.title}" loading="lazy"/>`
+              ? html`<img src="${s.thumb_url}" alt="${s.title}" loading="lazy"/>`
               : html`<div class="svc-thumb-empty">${s.title}</div>`
             }
             <div class="svc-tag ${s.category === 'webdev' ? 'tag-webdev' : 'tag-ai'}">${s.category === 'webdev' ? 'Web Dev' : 'AI'}</div>
@@ -115,13 +123,11 @@ export const ServicesPage = (services: Service[]) => html`
 export const TrackPage = () => html`
   <div class="page" id="page-track">
     <div class="track-page">
-      <!-- List View -->
       <div id="board-list-view">
         <div class="page-hd">
           <div class="page-ey">Board</div>
           <div class="page-tt">문의 <em>게시판</em></div>
         </div>
-        
         <div class="board-table-wrap">
           <table class="board-table">
             <thead>
@@ -140,8 +146,6 @@ export const TrackPage = () => html`
           </table>
         </div>
       </div>
-
-      <!-- Detail View (Full Page Style) -->
       <div id="board-detail-view" style="display:none;">
         <div id="detail-content-area"></div>
       </div>

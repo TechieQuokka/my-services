@@ -7,9 +7,22 @@ const visit = new Hono<{ Bindings: Env }>()
 visit.post('/', async (c) => {
   try {
     const body = await c.req.json()
-
-    // 서버에서 CF 헤더로 IP 수집 (클라이언트 ipify 호출 불필요)
     const public_ip = c.req.header('CF-Connecting-IP') ?? body.public_ip ?? null
+
+    // 같은 날 같은 session_id면 page_url/visited_at만 업데이트 (중복 집계 방지)
+    const today = new Date().toISOString().slice(0, 10)
+    const existing = await c.env.my_services_db
+      .prepare(`SELECT id FROM visitors WHERE session_id=? AND date(visited_at)=?`)
+      .bind(body.session_id, today)
+      .first<{ id: number }>()
+
+    if (existing) {
+      await c.env.my_services_db
+        .prepare(`UPDATE visitors SET visited_at=?, page_url=?, visit_count=visit_count+1 WHERE id=?`)
+        .bind(new Date().toISOString(), body.page_url ?? null, existing.id)
+        .run()
+      return c.json({ ok: true, deduplicated: true })
+    }
 
     await db.visitors.create(c.env, {
       session_id: body.session_id ?? crypto.randomUUID(),

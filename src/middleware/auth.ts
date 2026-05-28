@@ -2,8 +2,8 @@ import { createMiddleware } from 'hono/factory'
 import { getCookie } from 'hono/cookie'
 import type { Env } from '../types'
 
-// 쿠키 서명 검증
-async function verifyToken(token: string, password: string): Promise<boolean> {
+// 쿠키 서명 검증 — notices.ts 등 다른 곳에서도 재사용
+export async function verifyToken(token: string, password: string): Promise<boolean> {
   try {
     const [payload, sig] = token.split('.')
     if (!payload || !sig) return false
@@ -46,7 +46,7 @@ export async function createToken(password: string): Promise<string> {
 
 export const adminAuth = createMiddleware<{ Bindings: Env }>(async (c, next) => {
   // 로그인 페이지는 통과
-  if (c.req.path === '/admin/login') {
+  if (c.req.path === '/admin/login' || c.req.path === '/admin/logout') {
     await next()
     return
   }

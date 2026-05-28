@@ -5,6 +5,16 @@ import type { Env } from '../../types'
 
 const services = new Hono<{ Bindings: Env }>()
 
+// HTML 특수문자 이스케이프 (XSS 방지)
+function esc(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 services.get('/:id', async (c) => {
   const id = Number(c.req.param('id'))
   const [service, page] = await Promise.all([
@@ -19,7 +29,7 @@ services.get('/:id', async (c) => {
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>${service.title}</title>
+  <title>${esc(service.title)}</title>
   <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
   <style>
     :root{--bg:#e8e8e3;--text:#1c1c1a;--text2:#5a5a54;}
@@ -32,7 +42,7 @@ services.get('/:id', async (c) => {
 </head>
 <body>
   <div class="empty">
-    <h1>${service.title}</h1>
+    <h1>${esc(service.title)}</h1>
     <p>서비스 페이지를 준비 중입니다.</p>
   </div>
 </body>

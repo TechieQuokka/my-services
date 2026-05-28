@@ -4,12 +4,26 @@ function showPage(name) {
   document.getElementById('page-' + name)?.classList.add('active')
   document.querySelector('[data-page="' + name + '"]')?.classList.add('active')
   window.scrollTo(0, 0)
-  
+
   if (name === 'track') {
     document.getElementById('board-list-view').style.display = 'block'
     document.getElementById('board-detail-view').style.display = 'none'
     loadBoard()
   }
+}
+
+// ✅ 버그 수정: Services 탭 Web Dev / AI 필터 버튼
+function filterCards(cat, btn) {
+  document.querySelectorAll('.ftab').forEach(b => b.classList.remove('active'))
+  btn.classList.add('active')
+
+  document.querySelectorAll('#services-grid .svc-card').forEach(card => {
+    if (cat === 'all' || card.dataset.cat === cat) {
+      card.style.display = ''
+    } else {
+      card.style.display = 'none'
+    }
+  })
 }
 
 // Ownership Token 생성/관리
@@ -28,23 +42,29 @@ async function submitContact() {
   const contact = document.getElementById('cf-contact').value.trim()
   const password = document.getElementById('cf-password').value.trim()
   const content = document.getElementById('cf-content').value.trim()
-  
+
   if (!service_id || !name || !contact || !password || !content) return alert('모든 항목을 입력해주세요.')
-  
+
   const btn = document.getElementById('cf-btn')
   btn.textContent = '전송 중...'; btn.disabled = true
-  
-  const res = await fetch('/api/inquiries', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, contact, password, content, service_id: Number(service_id), owner_token: getOwnerToken() })
-  })
-  
-  if (res.ok) {
-    const data = await res.json()
-    lastAuth = { id: data.id, name, password }
-    await submitAuthPage(data.id, lastAuth)
-  } else {
-    alert('오류가 발생했습니다.')
+
+  try {
+    const res = await fetch('/api/inquiries', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, contact, password, content, service_id: Number(service_id), owner_token: getOwnerToken() })
+    })
+
+    if (res.ok) {
+      const data = await res.json()
+      lastAuth = { id: data.id, name, password }
+      showPage('track')
+      await submitAuthPage(data.id, lastAuth)
+    } else {
+      alert('오류가 발생했습니다.')
+    }
+  } catch(e) {
+    alert('네트워크 오류가 발생했습니다. 다시 시도해주세요.')
+  } finally {
     btn.textContent = '문의 보내기 →'; btn.disabled = false
   }
 }
@@ -53,7 +73,7 @@ async function loadBoard() {
   const res = await fetch('/api/inquiries/board')
   const data = await res.json()
   const body = document.getElementById('board-body')
-  
+
   const inquiries = data.filter(i => !i.is_notice)
   const inquiryTotal = inquiries.length
   let inquiryIdx = 0
@@ -98,19 +118,19 @@ async function viewFullNotice(id) {
   })
 }
 
-let lastAuth = null;
+let lastAuth = null
 
 async function submitAuthPage(id, manualCreds = null, skipScroll = false) {
   const name = manualCreds ? manualCreds.name : document.getElementById('auth-name')?.value.trim()
   const password = manualCreds ? manualCreds.password : document.getElementById('auth-password')?.value.trim()
-  
+
   if (!name || !password) return alert('이름과 비밀번호를 입력해주세요.')
 
   const res = await fetch('/api/inquiries/track/detail', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id, name, password, current_token: getOwnerToken() })
   })
-  
+
   if (res.ok) {
     const { data, messages } = await res.json()
     lastAuth = { id, name, password }
@@ -148,9 +168,9 @@ function openAuthPage(id) {
 function renderDetailView(data, skipScroll = false) {
   document.getElementById('board-list-view').style.display = 'none'
   document.getElementById('board-detail-view').style.display = 'block'
-  
+
   const area = document.getElementById('detail-content-area')
-  
+
   const commentsHtml = data.messages.map(m => `
     <div class="comment-item">
       <div class="cmt-hd">
@@ -158,7 +178,7 @@ function renderDetailView(data, skipScroll = false) {
         <span class="cmt-badge ${m.sender_role === 'admin' ? 'badge-admin' : (m.role_display === 'owner' ? 'badge-user' : 'badge-guest')}">
           ${m.sender_role === 'admin' ? 'ADMIN' : (m.role_display === 'owner' ? 'OWNER' : 'GUEST')}
         </span>
-        <span class="cmt-date">${m.created_at.slice(5, 16).replace('T',' ')}</span>
+        <span class="cmt-date">${m.created_at.slice(5, 16).replace('T', ' ')}</span>
       </div>
       <div class="cmt-body">${m.content}</div>
     </div>
@@ -191,12 +211,19 @@ function renderDetailView(data, skipScroll = false) {
 
 async function submitReply(id) {
   const content = document.getElementById('reply-content').value.trim()
-  if(!content || !lastAuth) return alert('인증이 필요합니다.')
+  if (!content || !lastAuth) return alert('인증이 필요합니다.')
+
+  // ✅ sender_role 클라이언트에서 전송하지 않음 → 서버에서 'user' 강제
   const res = await fetch(`/api/inquiries/${id}/messages`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content, name: lastAuth.name, password: lastAuth.password, sender_role: 'user', sender_token: getOwnerToken() })
+    body: JSON.stringify({
+      content,
+      name: lastAuth.name,
+      password: lastAuth.password,
+      sender_token: getOwnerToken()
+    })
   })
-  if(res.ok) await submitAuthPage(id, lastAuth, true)
+  if (res.ok) await submitAuthPage(id, lastAuth, true)
   else alert('오류 발생')
 }
 
@@ -221,7 +248,7 @@ async function viewNoticePopup(id) {
 
 function closeModal() { document.getElementById('detail-modal-overlay').classList.remove('open') }
 
-(function() {
+;(function () {
   loadNotices()
   const ua = navigator.userAgent
   function getOS(){if(/Windows NT 10/.test(ua))return'Windows 10/11';if(/Mac OS X ([\d_]+)/.test(ua))return'macOS '+ua.match(/Mac OS X ([\d_]+)/)[1].replace(/_/g,'.');if(/Android ([\d.]+)/.test(ua))return'Android '+ua.match(/Android ([\d.]+)/)[1];if(/iPhone OS ([\d_]+)/.test(ua))return'iOS '+ua.match(/iPhone OS ([\d_]+)/)[1].replace(/_/g,'.');return/Linux/.test(ua)?'Linux':'Unknown';}
@@ -230,8 +257,16 @@ function closeModal() { document.getElementById('detail-modal-overlay').classLis
   const isMobile=/Mobi|Android|iPhone|iPad/.test(ua)
   const s1=!!navigator.webdriver,s2=!!['HeadlessChrome','PhantomJS'].find(x=>ua.includes(x)),s3=![...(navigator.plugins||[])].length&&!isMobile,s4=!navigator.languages?.length,s5=/Chrome/.test(ua)&&typeof window.chrome==='undefined',s6=window.self!==window.top
   const botScore=Math.min(100,[s1*40,s2*50,s3*20,s4*15,s5*30,s6*10].reduce((a,b)=>a+b))
+  const _today=new Date().toISOString().slice(0,10)
+  const _sessionKey='session_'+_today
+  let _sessionId=localStorage.getItem(_sessionKey)
+  if(!_sessionId){
+    _sessionId=crypto.randomUUID()
+    localStorage.setItem(_sessionKey,_sessionId)
+    Object.keys(localStorage).filter(k=>k.startsWith('session_')&&k!==_sessionKey).forEach(k=>localStorage.removeItem(k))
+  }
   fetch('/api/visit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-    session_id:crypto.randomUUID(),visited_at:new Date().toISOString(),
+    session_id:_sessionId,visited_at:new Date().toISOString(),
     page_url:location.href,service_id:null,local_ip:null,referrer:document.referrer||null,
     device_type:getType(),os:getOS(),browser:getBrowser(),
     screen:screen.width+'x'+screen.height,dpr:devicePixelRatio,
@@ -242,4 +277,35 @@ function closeModal() { document.getElementById('detail-modal-overlay').classLis
     flag_webdriver:s1?1:0,flag_headless:s2?1:0,flag_no_plugins:s3?1:0,
     flag_no_langs:s4?1:0,flag_no_chrome:s5?1:0,flag_in_iframe:s6?1:0
   })})
-})();
+
+  // ✅ admin_track: sessionStorage key 방식 (URL에 비밀번호 노출 없음)
+  const urlParams=new URLSearchParams(location.search)
+  const adminTrackKey=urlParams.get('admin_track')
+  if(adminTrackKey&&adminTrackKey.startsWith('admin_track_')){
+    const raw=sessionStorage.getItem(adminTrackKey)
+    if(raw){
+      sessionStorage.removeItem(adminTrackKey)
+      try{
+        const{id,name,password}=JSON.parse(raw)
+        if(id&&name&&password){
+          history.replaceState(null,'','/#track')
+          showPage('track')
+          submitAuthPage(id,{id,name,password})
+          return
+        }
+      }catch(e){}
+    }
+  }
+
+  const pending=sessionStorage.getItem('pending_inquiry')
+  if(pending){
+    sessionStorage.removeItem('pending_inquiry')
+    try{
+      const{id,name,password}=JSON.parse(pending)
+      showPage('track')
+      submitAuthPage(id,{id,name,password})
+    }catch(e){}
+  }else if(location.hash==='#track'){
+    showPage('track')
+  }
+})()

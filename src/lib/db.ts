@@ -1,4 +1,4 @@
-import type { Env, Service, ServicePage, ServiceImage, Visitor, Inquiry, Notice } from '../types'
+import type { Env, Service, ServicePage, ServiceImage, Visitor, Inquiry, Notice, InquiryMessage } from '../types'
 
 const now = () => new Date().toISOString()
 const expires = () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
@@ -110,13 +110,28 @@ export const db = {
     unread: (env: Env) =>
       env.my_services_db.prepare('SELECT COUNT(*) as count FROM inquiries WHERE is_read=0').first<{ count: number }>(),
 
+    count: (env: Env) =>
+      env.my_services_db.prepare('SELECT COUNT(*) as count FROM inquiries').first<{ count: number }>(),
+
     create: (env: Env, data: { service_id: number; visitor_id: number | null; name: string; contact: string; password: string | null; content: string; owner_token?: string; owner_ip?: string }) =>
       env.my_services_db.prepare(
         'INSERT INTO inquiries (service_id,visitor_id,name,contact,password,content,owner_token,owner_ip,created_at) VALUES (?,?,?,?,?,?,?,?,?)'
       ).bind(data.service_id, data.visitor_id, data.name, data.contact, data.password, data.content, data.owner_token ?? null, data.owner_ip ?? null, now()).run(),
 
-    // ... (findByUser, etc)
-    
+    delete: (env: Env, id: number) =>
+      env.my_services_db.prepare('DELETE FROM inquiries WHERE id=?').bind(id).run(),
+
+    markRead: (env: Env, id: number) =>
+      env.my_services_db.prepare(`UPDATE inquiries SET is_read=1, read_at=datetime('now') WHERE id=?`).bind(id).run(),
+
+    updateStatus: (env: Env, id: number, status: string) =>
+      env.my_services_db.prepare('UPDATE inquiries SET status=? WHERE id=?').bind(status, id).run(),
+
+    purgeOldest: (env: Env, n: number) =>
+      env.my_services_db.prepare(
+        'DELETE FROM inquiries WHERE id IN (SELECT id FROM inquiries ORDER BY created_at ASC LIMIT ?)'
+      ).bind(n).run(),
+
     // ─── Inquiry Messages ───
     getMessages: (env: Env, inquiry_id: number) =>
       env.my_services_db.prepare('SELECT * FROM inquiry_messages WHERE inquiry_id=? ORDER BY created_at ASC').bind(inquiry_id).all<InquiryMessage>(),

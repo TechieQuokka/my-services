@@ -1,7 +1,6 @@
 import { Hono } from 'hono'
 import { db } from '../../lib/db'
-import { uploadToImageKit, fetchThumbFromUrl } from '../../lib/imagekit'
-import { decrypt } from '../../lib/crypto'
+import { uploadToImageKit, deleteFromImageKit } from '../../lib/imagekit'
 import type { Env } from '../../types'
 
 const services = new Hono<{ Bindings: Env }>()
@@ -19,9 +18,9 @@ services.post('/', async (c) => {
     title: body.title,
     category: body.category,
     description: body.description ?? null,
-    thumb_type: body.thumb_type ?? 'upload',
+    thumb_type: 'upload',
     thumb_url: body.thumb_url ?? null,
-    thumb_origin: body.thumb_origin ?? null,
+    thumb_origin: null,
     is_active: 1,
     sort_order: body.sort_order ?? 0,
   })
@@ -32,7 +31,19 @@ services.post('/', async (c) => {
 services.put('/:id', async (c) => {
   const id = Number(c.req.param('id'))
   const body = await c.req.json()
-  await db.services.update(c.env, id, body)
+  const existing = await db.services.get(c.env, id)
+  if (!existing) return c.json({ ok: false, error: 'Not found' }, 404)
+  await db.services.update(c.env, id, {
+    ...existing,
+    title: body.title ?? existing.title,
+    category: body.category ?? existing.category,
+    description: body.description ?? existing.description,
+    sort_order: body.sort_order ?? existing.sort_order,
+    // thumb는 별도 업로드 라우트로만 변경
+    thumb_type: existing.thumb_type,
+    thumb_url: existing.thumb_url,
+    thumb_origin: existing.thumb_origin,
+  })
   return c.json({ ok: true })
 })
 
@@ -47,11 +58,23 @@ services.patch('/:id/toggle', async (c) => {
 // 서비스 삭제
 services.delete('/:id', async (c) => {
   const id = Number(c.req.param('id'))
+  const existing = await db.services.get(c.env, id)
+
+  // ImageKit 썸네일 삭제 (fileId가 thumb_origin에 저장됨)
+  if (existing?.thumb_origin) {
+    try {
+      await deleteFromImageKit(existing.thumb_origin, c.env.IMAGEKIT_PRIVATE_KEY)
+    } catch (e) {
+      console.error('ImageKit thumb delete failed:', e)
+      // ImageKit 삭제 실패해도 서비스는 삭제 진행
+    }
+  }
+
   await db.services.delete(c.env, id)
   return c.json({ ok: true })
 })
 
-// 광고 페이지 HTML 업로드
+// 서비스 페이지 HTML 업로드
 services.post('/:id/page', async (c) => {
   const id = Number(c.req.param('id'))
   const body = await c.req.json()
@@ -59,44 +82,84 @@ services.post('/:id/page', async (c) => {
   return c.json({ ok: true })
 })
 
-// 이미지 업로드 → ImageKit
+// ── 썸네일 이미지 업로드 → ImageKit ─────────────────────────────
+services.post('/:id/thumb', async (c) => {
+  const id = Number(c.req.param('id'))
+
+  const formData = await c.req.formData()
+  const file = formData.get('file') as File | null
+  if (!file) return c.json({ ok: false, error: '파일이 없습니다.' }, 400)
+
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+  if (!allowedTypes.includes(file.type)) {
+    return c.json({ ok: false, error: '이미지 파일만 업로드 가능합니다.' }, 400)
+  }
+
+  const existing = await db.services.get(c.env, id)
+  if (!existing) return c.json({ ok: false, error: 'Not found' }, 404)
+
+  // 기존 썸네일 ImageKit에서 먼저 삭제 (교체 시)
+  if (existing.thumb_origin) {
+    try {
+      await deleteFromImageKit(existing.thumb_origin, c.env.IMAGEKIT_PRIVATE_KEY)
+    } catch (e) {
+      console.error('ImageKit old thumb delete failed:', e)
+      // 구 파일 삭제 실패해도 새 업로드는 진행
+    }
+  }
+
+  const buffer = await file.arrayBuffer()
+  const { url, fileId, filePath } = await uploadToImageKit(
+    buffer,
+    file.name,
+    c.env.IMAGEKIT_PRIVATE_KEY,
+    '/my-services/thumbs'
+  )
+
+  await db.services.update(c.env, id, {
+    ...existing,
+    thumb_type: 'upload',
+    thumb_url: filePath,   // filePath 저장 (Signed URL 재생성용)
+    thumb_origin: fileId,  // fileId 저장 (삭제 관리용)
+  })
+
+  return c.json({ ok: true, filePath, fileId, url })
+})
+
+// ── 서비스 이미지(포트폴리오) 업로드 → ImageKit ─────────────────
 services.post('/:id/images', async (c) => {
   const id = Number(c.req.param('id'))
   const formData = await c.req.formData()
-  const file = formData.get('file') as File
+  const file = formData.get('file') as File | null
+  if (!file) return c.json({ ok: false, error: '파일이 없습니다.' }, 400)
 
-  // ImageKit API 키 가져오기
-  const keyRow = await c.env.my_services_db.prepare(
-    "SELECT key_enc, iv FROM api_keys WHERE service='imagekit'"
-  ).first<{ key_enc: string; iv: string }>()
-  if (!keyRow) return c.json({ ok: false, error: 'ImageKit API 키 없음' }, 400)
-
-  const apiKey = await decrypt(keyRow.key_enc, keyRow.iv, c.env.MASTER_KEY)
   const buffer = await file.arrayBuffer()
-  const url = await uploadToImageKit(buffer, file.name, apiKey)
+  const { filePath, fileId } = await uploadToImageKit(
+    buffer,
+    file.name,
+    c.env.IMAGEKIT_PRIVATE_KEY,
+    '/my-services/images'
+  )
 
   const { results } = await db.images.list(c.env, id)
-  await db.images.create(c.env, id, url, results.length)
-  return c.json({ ok: true, url })
+  await db.images.create(c.env, id, filePath, results.length)
+  return c.json({ ok: true, filePath, fileId })
 })
 
-// 썸네일 설정 (URL에서 Microlink로 추출)
-services.post('/:id/thumb', async (c) => {
+// ── Signed URL 발급 (썸네일 프리뷰용) ───────────────────────────
+services.get('/:id/thumb-url', async (c) => {
   const id = Number(c.req.param('id'))
-  const body = await c.req.json()
+  const service = await db.services.get(c.env, id)
+  if (!service?.thumb_url) return c.json({ ok: false, error: 'No thumb' }, 404)
 
-  let thumb_url = body.thumb_url ?? null
-  if (body.thumb_type === 'url' && body.thumb_origin) {
-    thumb_url = await fetchThumbFromUrl(body.thumb_origin)
-  }
-
-  await db.services.update(c.env, id, {
-    ...(await db.services.get(c.env, id))!,
-    thumb_type: body.thumb_type,
-    thumb_url,
-    thumb_origin: body.thumb_origin ?? null,
-  })
-  return c.json({ ok: true, thumb_url })
+  const { buildSignedTransformUrl } = await import('../../lib/imagekit')
+  const url = await buildSignedTransformUrl(
+    service.thumb_url,
+    c.env.IMAGEKIT_URL_ENDPOINT,
+    c.env.IMAGEKIT_PRIVATE_KEY,
+    { w: 800, h: 600, q: 82 }
+  )
+  return c.json({ ok: true, url })
 })
 
 export default services

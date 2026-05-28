@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.2.5'
+export const APP_VERSION = 'v1.3.15'
 
 export interface InquiryMessage {
   id: number
@@ -68,6 +68,7 @@ export interface Visitor {
   flag_no_langs: number
   flag_no_chrome: number
   flag_in_iframe: number
+  visit_count: number
   expires_at: string
 }
 
@@ -107,6 +108,10 @@ export interface Notice {
 
 export interface Env {
   my_services_db: D1Database
+  RATE_LIMIT_KV: KVNamespace   // Rate Limiting용 KV
   MASTER_KEY: string
   ADMIN_PASSWORD: string
+  IMAGEKIT_PRIVATE_KEY: string
+  IMAGEKIT_PUBLIC_KEY: string
+  IMAGEKIT_URL_ENDPOINT: string
 }

@@ -1,21 +1,31 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "my-services",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-05-27",
-  "compatibility_flags": ["nodejs_compat"],
-  "d1_databases": [
-    {
-      "binding": "my_services_db",
-      "database_name": "my-services-db",
-      "database_id": "d4f0798f-600e-49c2-8404-c24ae3a9d290"
-    }
-  ],
-  "assets": {
-    "directory": "./static",
-    "binding": "ASSETS"
-  },
-  "triggers": {
-    "crons": ["0 3 * * *"]
-  }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "my-services",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-05-27",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"d1_databases": [
+		{
+			"binding": "my_services_db",
+			"database_name": "my-services-db",
+			"database_id": "d4f0798f-600e-49c2-8404-c24ae3a9d290"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "RATE_LIMIT_KV",
+			"id": "ff16e584317c4e69aa6f9e1bd9f58422"
+		}
+	],
+	"assets": {
+		"directory": "./static",
+		"binding": "ASSETS"
+	},
+	"triggers": {
+		"crons": [
+			"0 3 * * *"
+		]
+	}
 }

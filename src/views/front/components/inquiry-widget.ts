@@ -52,35 +52,51 @@ export const InquiryWidget = (id: number) => html`
   </div>
 </div>
 <script>
+function getOwnerTokenWidget() {
+  let token = localStorage.getItem('ownership_token')
+  if (!token) {
+    token = crypto.randomUUID()
+    localStorage.setItem('ownership_token', token)
+  }
+  return token
+}
+
 async function submitInquiryWidget(){
-  const name=document.getElementById('iq-name').value.trim()
-  const contact=document.getElementById('iq-contact').value.trim()
-  const password=document.getElementById('iq-password').value.trim()
-  const content=document.getElementById('iq-content').value.trim()
+  const name = document.getElementById('iq-name').value.trim()
+  const contact = document.getElementById('iq-contact').value.trim()
+  const password = document.getElementById('iq-password').value.trim()
+  const content = document.getElementById('iq-content').value.trim()
   if(!name||!contact||!password||!content){alert('모든 항목을 입력해주세요.');return;}
-  const btn=document.getElementById('iq-submit')
-  btn.textContent='전송 중...';btn.disabled=true
-  
-  // visitor_id 수집 시도 (세션 스토리지 등에서)
-  let visitor_id = null;
+
+  const btn = document.getElementById('iq-submit')
+  btn.textContent = '전송 중...'; btn.disabled = true
+
+  let visitor_id = null
   try {
-    const vdata = localStorage.getItem('visitor_id');
-    if(vdata) visitor_id = Number(vdata);
+    const vdata = localStorage.getItem('visitor_id')
+    if(vdata) visitor_id = Number(vdata)
   } catch(e){}
 
-  const res=await fetch('/api/inquiries',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name,contact,password,content,service_id:${id},visitor_id})
-  })
-  if(res.ok){
-    alert('문의가 전송되었습니다. 빠른 시일 내에 연락드리겠습니다.');
-    document.getElementById('inquiry-overlay').classList.remove('open')
-  } else {
-    const data = await res.json();
-    alert('오류가 발생했습니다: ' + (data.error || '다시 시도해주세요.'));
+  try {
+    const res = await fetch('/api/inquiries', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, contact, password, content, service_id: ${id}, visitor_id, owner_token: getOwnerTokenWidget()})
+    })
+
+    if(res.ok){
+      const data = await res.json()
+      sessionStorage.setItem('pending_inquiry', JSON.stringify({id: data.id, name, password}))
+      window.location.href = '/#track'
+    } else {
+      const data = await res.json()
+      alert('오류가 발생했습니다: ' + (data.error || '다시 시도해주세요.'))
+      btn.textContent = '전송 →'; btn.disabled = false
+    }
+  } catch(e) {
+    alert('네트워크 오류가 발생했습니다. 다시 시도해주세요.')
+    btn.textContent = '전송 →'; btn.disabled = false
   }
-  btn.textContent='전송 →';btn.disabled=false
 }
 </script>
 `
