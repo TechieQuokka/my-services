@@ -21,7 +21,8 @@ front.get('/', async (c) => {
           { w: 800, h: 600, q: 82 }
         )
         return { ...s, thumb_url: signedUrl }
-      } catch {
+      } catch (e) {
+        console.error(`[ImageKit] Signed URL 생성 실패 — service_id: ${s.id}, path: ${s.thumb_url}`, e)
         return { ...s, thumb_url: null }
       }
     }
@@ -35,7 +36,8 @@ front.get('/', async (c) => {
     ContactPage(servicesWithThumb)
   ]
 
-  return c.html(Layout(content))
+  // 홈은 serviceMode 없이 기존과 동일하게
+  return c.html(String(Layout(content)))
 })
 
 export default front

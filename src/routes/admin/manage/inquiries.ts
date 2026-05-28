@@ -1,16 +1,13 @@
 import { Hono } from 'hono'
 import { adminLayout, pageHeader } from '../../../views/admin/layout'
 import { decrypt } from '../../../lib/crypto'
+import { db } from '../../../lib/db'
 import type { Env } from '../../../types'
 
 const app = new Hono<{ Bindings: Env }>()
 
 app.get('/', async (c) => {
-  const { results: raw } = await c.env.my_services_db.prepare(`
-    SELECT i.*, s.title as service_title FROM inquiries i
-    LEFT JOIN services s ON i.service_id=s.id
-    ORDER BY i.created_at DESC LIMIT 100
-  `).all<any>()
+  const { results: raw } = await db.inquiries.listWithDecryptable(c.env, 100)
 
   const inquiries = await Promise.all(raw.map(async (i: any) => {
     try {
@@ -23,7 +20,6 @@ app.get('/', async (c) => {
       i.contact_dec = await decrypt(enc, iv, c.env.MASTER_KEY)
     } catch { i.contact_dec = '(복호화 실패)' }
 
-    // ✅ 어드민 UI에 해시 비밀번호 노출 불필요 — 제거
     delete i.password
 
     return i
@@ -91,14 +87,11 @@ app.get('/', async (c) => {
           </div>
           <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
             <div style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Password</div>
-            <!-- ✅ 해시 비밀번호 노출 제거 — 어드민에게 불필요 -->
             <div style="font-size:12px;font-family:monospace;color:var(--text3);">••••••••</div>
           </div>
         </div>
 
         <div style="padding:14px 16px;background:var(--bg);border-radius:10px;border:1px solid var(--border);font-size:14px;line-height:1.7;margin-bottom:14px;white-space:pre-wrap;color:var(--text2);" x-text="selected?.content"></div>
-
-        <!-- 고객 문의 페이지 직접 접근 — 비밀번호 없이는 열 수 없으므로 버튼 제거 -->
 
         <!-- 대화 스레드 -->
         <div style="flex:1;overflow-y:auto;margin-bottom:16px;" id="admin-thread-wrap">
@@ -159,7 +152,6 @@ app.get('/', async (c) => {
           });
         },
 
-        // ✅ /admin/inquiries/:id/messages → sender_role 서버에서 'admin' 강제
         async sendReply(){
           if(!this.reply.trim())return;
           const res=await fetch(\`/admin/inquiries/\${this.selected.id}/messages\`,{

@@ -1,19 +1,33 @@
 import { Hono } from 'hono'
 import { db } from '../../lib/db'
+import { rateLimit } from '../../lib/ratelimit'
 import type { Env } from '../../types'
 
 const visit = new Hono<{ Bindings: Env }>()
 
 visit.post('/', async (c) => {
   try {
-    const body = await c.req.json()
-    const public_ip = c.req.header('CF-Connecting-IP') ?? body.public_ip ?? null
+    const ip = c.req.header('CF-Connecting-IP') ?? '0.0.0.0'
 
-    // 같은 날 같은 session_id면 page_url/visited_at만 업데이트 (중복 집계 방지)
+    // Rate Limit: IP당 1분 내 20회
+    const { limited } = await rateLimit(c.env, `rl:visit:${ip}`, 20, 60)
+    if (limited) return c.json({ ok: false, error: 'Too many requests' }, 429)
+
+    const body = await c.req.json()
+    const public_ip = ip !== '0.0.0.0' ? ip : (body.public_ip ?? null)
+
     const today = new Date().toISOString().slice(0, 10)
+
+    // session_id + date + service_id 조합으로 중복 판단
+    // service_id가 다르면 (홈 vs 서비스 페이지) 별개 레코드로 기록
     const existing = await c.env.my_services_db
-      .prepare(`SELECT id FROM visitors WHERE session_id=? AND date(visited_at)=?`)
-      .bind(body.session_id, today)
+      .prepare(
+        `SELECT id FROM visitors
+         WHERE session_id=?
+           AND date(visited_at)=?
+           AND (service_id IS ? OR (service_id IS NULL AND ? IS NULL))`
+      )
+      .bind(body.session_id, today, body.service_id ?? null, body.service_id ?? null)
       .first<{ id: number }>()
 
     if (existing) {
@@ -51,6 +65,7 @@ visit.post('/', async (c) => {
       flag_no_langs: body.flag_no_langs ?? 0,
       flag_no_chrome: body.flag_no_chrome ?? 0,
       flag_in_iframe: body.flag_in_iframe ?? 0,
+      visit_count: 1,
     })
     return c.json({ ok: true })
   } catch (e) {

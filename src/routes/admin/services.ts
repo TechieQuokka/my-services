@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { db } from '../../lib/db'
 import { uploadToImageKit, deleteFromImageKit } from '../../lib/imagekit'
+import { parseServiceHtml } from '../../lib/htmlParser'
 import type { Env } from '../../types'
 
 const services = new Hono<{ Bindings: Env }>()
@@ -39,7 +40,6 @@ services.put('/:id', async (c) => {
     category: body.category ?? existing.category,
     description: body.description ?? existing.description,
     sort_order: body.sort_order ?? existing.sort_order,
-    // thumb는 별도 업로드 라우트로만 변경
     thumb_type: existing.thumb_type,
     thumb_url: existing.thumb_url,
     thumb_origin: existing.thumb_origin,
@@ -55,30 +55,48 @@ services.patch('/:id/toggle', async (c) => {
   return c.json({ ok: true })
 })
 
-// 서비스 삭제
+// 서비스 삭제 — db.batch()로 원자적 처리
 services.delete('/:id', async (c) => {
   const id = Number(c.req.param('id'))
   const existing = await db.services.get(c.env, id)
+  if (!existing) return c.json({ ok: false, error: 'Not found' }, 404)
 
-  // ImageKit 썸네일 삭제 (fileId가 thumb_origin에 저장됨)
-  if (existing?.thumb_origin) {
+  // ImageKit 썸네일 삭제 (외부 API라 트랜잭션 밖에서 처리)
+  if (existing.thumb_origin) {
     try {
       await deleteFromImageKit(existing.thumb_origin, c.env.IMAGEKIT_PRIVATE_KEY)
     } catch (e) {
       console.error('ImageKit thumb delete failed:', e)
-      // ImageKit 삭제 실패해도 서비스는 삭제 진행
     }
   }
 
-  await db.services.delete(c.env, id)
+  const D = c.env.my_services_db
+
+  // inquiry_messages → inquiries → service_pages → visitors(null) → services
+  // 단일 batch로 원자적 처리
+  await D.batch([
+    D.prepare(
+      `DELETE FROM inquiry_messages WHERE inquiry_id IN (SELECT id FROM inquiries WHERE service_id=?)`
+    ).bind(id),
+    D.prepare('DELETE FROM inquiries WHERE service_id=?').bind(id),
+    D.prepare('DELETE FROM service_pages WHERE service_id=?').bind(id),
+    D.prepare('UPDATE visitors SET service_id=NULL WHERE service_id=?').bind(id),
+    D.prepare('DELETE FROM services WHERE id=?').bind(id),
+  ])
+
   return c.json({ ok: true })
 })
 
-// 서비스 페이지 HTML 업로드
+// ── 서비스 페이지 HTML 업로드 → 파싱 후 저장 ──────────────────────
 services.post('/:id/page', async (c) => {
   const id = Number(c.req.param('id'))
   const body = await c.req.json()
-  await db.pages.upsert(c.env, id, body.html_content)
+  const html = body.html_content as string
+
+  if (!html?.trim()) return c.json({ ok: false, error: 'HTML이 비어있습니다.' }, 400)
+
+  const parsed = parseServiceHtml(html, id)
+  await db.pages.upsert(c.env, id, parsed)
   return c.json({ ok: true })
 })
 
@@ -98,13 +116,11 @@ services.post('/:id/thumb', async (c) => {
   const existing = await db.services.get(c.env, id)
   if (!existing) return c.json({ ok: false, error: 'Not found' }, 404)
 
-  // 기존 썸네일 ImageKit에서 먼저 삭제 (교체 시)
   if (existing.thumb_origin) {
     try {
       await deleteFromImageKit(existing.thumb_origin, c.env.IMAGEKIT_PRIVATE_KEY)
     } catch (e) {
       console.error('ImageKit old thumb delete failed:', e)
-      // 구 파일 삭제 실패해도 새 업로드는 진행
     }
   }
 
@@ -119,31 +135,11 @@ services.post('/:id/thumb', async (c) => {
   await db.services.update(c.env, id, {
     ...existing,
     thumb_type: 'upload',
-    thumb_url: filePath,   // filePath 저장 (Signed URL 재생성용)
-    thumb_origin: fileId,  // fileId 저장 (삭제 관리용)
+    thumb_url: filePath,
+    thumb_origin: fileId,
   })
 
   return c.json({ ok: true, filePath, fileId, url })
-})
-
-// ── 서비스 이미지(포트폴리오) 업로드 → ImageKit ─────────────────
-services.post('/:id/images', async (c) => {
-  const id = Number(c.req.param('id'))
-  const formData = await c.req.formData()
-  const file = formData.get('file') as File | null
-  if (!file) return c.json({ ok: false, error: '파일이 없습니다.' }, 400)
-
-  const buffer = await file.arrayBuffer()
-  const { filePath, fileId } = await uploadToImageKit(
-    buffer,
-    file.name,
-    c.env.IMAGEKIT_PRIVATE_KEY,
-    '/my-services/images'
-  )
-
-  const { results } = await db.images.list(c.env, id)
-  await db.images.create(c.env, id, filePath, results.length)
-  return c.json({ ok: true, filePath, fileId })
 })
 
 // ── Signed URL 발급 (썸네일 프리뷰용) ───────────────────────────

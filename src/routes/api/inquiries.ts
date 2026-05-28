@@ -15,22 +15,18 @@ inquiries.post('/', async (c) => {
 
     name = name?.trim(); contact = contact?.trim(); content = content?.trim(); password = password?.trim()
 
-    if (!name || !contact || !content || !service_id || !password)
+    if (!name || !contact || !content || !password)
       return c.json({ ok: false, error: '모든 필수 항목을 입력해주세요.' }, 400)
 
-    // 150개 도달 시 50개 자동 삭제
-    try {
-      const countRes = await db.inquiries.count(c.env)
-      if (countRes && countRes.count >= 150) await db.inquiries.purgeOldest(c.env, 50)
-    } catch (e) {}
+    // 원자적 처리: 150개 이상이면 50개 자동 삭제
+    await db.inquiries.purgeOldestIfNeeded(c.env, 150, 50)
 
     const contactEnc = await encrypt(contact, c.env.MASTER_KEY)
     const contentEnc = await encrypt(content, c.env.MASTER_KEY)
-
     const passwordHash = await hashPassword(password)
 
     const result = await db.inquiries.create(c.env, {
-      service_id,
+      service_id: service_id ?? null,
       visitor_id: visitor_id ?? null,
       name,
       contact: JSON.stringify(contactEnc),
@@ -60,20 +56,37 @@ inquiries.get('/board', async (c) => {
     ORDER BY i.created_at DESC LIMIT 50
   `).all<any>()
 
+  // notice는 상단 고정, 그 아래 inquiry를 created_at DESC로 정렬 보장
+  const noticeItems = notices.map((n: any) => ({
+    id: n.id,
+    service_title: 'Notice',
+    name: 'Admin',
+    snippet: n.title,
+    status: 'resolved',
+    created_at: n.created_at,
+    is_notice: 1,
+    is_fixed: n.is_fixed,
+  }))
+
+  const inquiryItems = inquiriesList.map((i: any) => ({
+    id: i.id,
+    // service_title은 카테고리 수준으로만 노출 (구체적 서비스명 마스킹 아님 — 정책상 유지)
+    service_title: i.service_title ?? '—',
+    name: i.name.length > 2
+      ? i.name[0] + '*'.repeat(i.name.length - 2) + i.name[i.name.length - 1]
+      : i.name[0] + '*',
+    snippet: `비밀글입니다.${i.admin_reply_count > 0 ? ' (답변)' : ''}`,
+    status: i.status,
+    created_at: i.created_at,
+    is_notice: 0,
+  }))
+
+  // notice 먼저, inquiry는 created_at DESC 정렬 보장
   const final = [
-    ...notices.map((n: any) => ({
-      id: n.id, service_title: 'Notice', name: 'Admin',
-      snippet: n.title, status: 'resolved',
-      created_at: n.created_at, is_notice: 1, is_fixed: n.is_fixed
-    })),
-    ...inquiriesList.map((i: any) => ({
-      id: i.id, service_title: i.service_title,
-      name: i.name.length > 2
-        ? i.name[0] + '*'.repeat(i.name.length - 2) + i.name[i.name.length - 1]
-        : i.name[0] + '*',
-      snippet: `비밀글입니다.${i.admin_reply_count > 0 ? ' (답변)' : ''}`,
-      status: i.status, created_at: i.created_at, is_notice: 0
-    }))
+    ...noticeItems,
+    ...inquiryItems.sort((a: any, b: any) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    ),
   ]
 
   return c.json(final)
@@ -83,7 +96,6 @@ inquiries.get('/board', async (c) => {
 inquiries.post('/track/detail', async (c) => {
   const ip = c.req.header('cf-connecting-ip') || '0.0.0.0'
 
-  // Rate Limit: IP당 5분 내 10회
   const { limited } = await rateLimit(c.env, `rl:track:${ip}`, 10, 60 * 5)
   if (limited) return c.json({ ok: false, error: '너무 많은 요청입니다. 잠시 후 다시 시도해주세요.' }, 429)
 
@@ -124,7 +136,6 @@ inquiries.post('/track/detail', async (c) => {
 inquiries.post('/:id/messages', async (c) => {
   const ip = c.req.header('cf-connecting-ip') || '0.0.0.0'
 
-  // Rate Limit: IP당 1분 내 10회
   const { limited } = await rateLimit(c.env, `rl:msg:${ip}`, 10, 60)
   if (limited) return c.json({ ok: false, error: '너무 많은 요청입니다. 잠시 후 다시 시도해주세요.' }, 429)
 

@@ -19,9 +19,9 @@ export async function rateLimit(
 
     if (count >= max) return { limited: true, count }
 
-    // 첫 요청이면 TTL 설정, 이후엔 TTL 유지하며 카운트만 증가
     await env.RATE_LIMIT_KV.put(key, String(count + 1), {
-      expirationTtl: ttlSec,
+      // 첫 요청일 때만 TTL 설정, 이후엔 기존 TTL 유지
+      ...(count === 0 ? { expirationTtl: ttlSec } : {}),
     })
     return { limited: false, count: count + 1 }
   } catch {

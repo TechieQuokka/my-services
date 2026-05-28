@@ -12,21 +12,14 @@ function showPage(name) {
   }
 }
 
-// ✅ 버그 수정: Services 탭 Web Dev / AI 필터 버튼
 function filterCards(cat, btn) {
   document.querySelectorAll('.ftab').forEach(b => b.classList.remove('active'))
   btn.classList.add('active')
-
   document.querySelectorAll('#services-grid .svc-card').forEach(card => {
-    if (cat === 'all' || card.dataset.cat === cat) {
-      card.style.display = ''
-    } else {
-      card.style.display = 'none'
-    }
+    card.style.display = (cat === 'all' || card.dataset.cat === cat) ? '' : 'none'
   })
 }
 
-// Ownership Token 생성/관리
 function getOwnerToken() {
   let token = localStorage.getItem('ownership_token')
   if (!token) {
@@ -57,21 +50,45 @@ async function submitContact() {
     if (res.ok) {
       const data = await res.json()
       lastAuth = { id: data.id, name, password }
+      // 문의 성공 후 track 페이지로 이동하여 상세 바로 표시
       showPage('track')
       await submitAuthPage(data.id, lastAuth)
     } else {
       alert('오류가 발생했습니다.')
     }
-  } catch(e) {
+  } catch (e) {
     alert('네트워크 오류가 발생했습니다. 다시 시도해주세요.')
   } finally {
     btn.textContent = '문의 보내기 →'; btn.disabled = false
   }
 }
 
-async function loadBoard() {
-  const res = await fetch('/api/inquiries/board')
-  const data = await res.json()
+// ── loadBoard TTL 캐시 (30초) ─────────────────────────────────────
+let _boardCache = null
+let _boardCacheAt = 0
+const BOARD_TTL = 30 * 1000 // 30초
+
+async function loadBoard(force = false) {
+  const now = Date.now()
+  if (!force && _boardCache && now - _boardCacheAt < BOARD_TTL) {
+    renderBoard(_boardCache)
+    return
+  }
+
+  try {
+    const res = await fetch('/api/inquiries/board')
+    const data = await res.json()
+    _boardCache = data
+    _boardCacheAt = now
+    renderBoard(data)
+  } catch (e) {
+    console.error('[loadBoard] fetch 실패', e)
+    const body = document.getElementById('board-body')
+    body.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text3);">불러오기 실패. 다시 시도해주세요.</td></tr>'
+  }
+}
+
+function renderBoard(data) {
   const body = document.getElementById('board-body')
 
   const inquiries = data.filter(i => !i.is_notice)
@@ -213,7 +230,6 @@ async function submitReply(id) {
   const content = document.getElementById('reply-content').value.trim()
   if (!content || !lastAuth) return alert('인증이 필요합니다.')
 
-  // ✅ sender_role 클라이언트에서 전송하지 않음 → 서버에서 'user' 강제
   const res = await fetch(`/api/inquiries/${id}/messages`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -223,8 +239,13 @@ async function submitReply(id) {
       sender_token: getOwnerToken()
     })
   })
-  if (res.ok) await submitAuthPage(id, lastAuth, true)
-  else alert('오류 발생')
+  if (res.ok) {
+    // 댓글 등록 후 캐시 무효화 (새 댓글이 board에 반영되도록)
+    _boardCache = null
+    await submitAuthPage(id, lastAuth, true)
+  } else {
+    alert('오류 발생')
+  }
 }
 
 async function loadNotices() {
@@ -248,64 +269,42 @@ async function viewNoticePopup(id) {
 
 function closeModal() { document.getElementById('detail-modal-overlay').classList.remove('open') }
 
+// 초기화 (visit 추적은 layout.ts에서 buildVisitScript로 주입)
 ;(function () {
   loadNotices()
-  const ua = navigator.userAgent
-  function getOS(){if(/Windows NT 10/.test(ua))return'Windows 10/11';if(/Mac OS X ([\d_]+)/.test(ua))return'macOS '+ua.match(/Mac OS X ([\d_]+)/)[1].replace(/_/g,'.');if(/Android ([\d.]+)/.test(ua))return'Android '+ua.match(/Android ([\d.]+)/)[1];if(/iPhone OS ([\d_]+)/.test(ua))return'iOS '+ua.match(/iPhone OS ([\d_]+)/)[1].replace(/_/g,'.');return/Linux/.test(ua)?'Linux':'Unknown';}
-  function getBrowser(){for(const[r,n]of[[/Edg\/([\d.]+)/,'Edge'],[/Chrome\/([\d.]+)/,'Chrome'],[/Firefox\/([\d.]+)/,'Firefox'],[/Version\/([\d.]+).*Safari/,'Safari']]){const m=ua.match(r);if(m)return n+' '+m[1];}return ua.slice(0,30);}
-  function getType(){if(/iPad/.test(ua))return'Tablet';if(/iPhone/.test(ua))return'iPhone';if(/Android.*Mobile/.test(ua))return'Android Phone';return/Mobi/.test(ua)?'Mobile':'Desktop';}
-  const isMobile=/Mobi|Android|iPhone|iPad/.test(ua)
-  const s1=!!navigator.webdriver,s2=!!['HeadlessChrome','PhantomJS'].find(x=>ua.includes(x)),s3=![...(navigator.plugins||[])].length&&!isMobile,s4=!navigator.languages?.length,s5=/Chrome/.test(ua)&&typeof window.chrome==='undefined',s6=window.self!==window.top
-  const botScore=Math.min(100,[s1*40,s2*50,s3*20,s4*15,s5*30,s6*10].reduce((a,b)=>a+b))
-  const _today=new Date().toISOString().slice(0,10)
-  const _sessionKey='session_'+_today
-  let _sessionId=localStorage.getItem(_sessionKey)
-  if(!_sessionId){
-    _sessionId=crypto.randomUUID()
-    localStorage.setItem(_sessionKey,_sessionId)
-    Object.keys(localStorage).filter(k=>k.startsWith('session_')&&k!==_sessionKey).forEach(k=>localStorage.removeItem(k))
-  }
-  fetch('/api/visit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-    session_id:_sessionId,visited_at:new Date().toISOString(),
-    page_url:location.href,service_id:null,local_ip:null,referrer:document.referrer||null,
-    device_type:getType(),os:getOS(),browser:getBrowser(),
-    screen:screen.width+'x'+screen.height,dpr:devicePixelRatio,
-    touch_pts:navigator.maxTouchPoints,cpu_cores:navigator.hardwareConcurrency||null,
-    ram_gb:navigator.deviceMemory||null,language:navigator.language,
-    timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,user_agent:ua,
-    bot_score:botScore,bot_verdict:botScore>=60?'BOT':botScore>=25?'SUSPECT':'HUMAN',
-    flag_webdriver:s1?1:0,flag_headless:s2?1:0,flag_no_plugins:s3?1:0,
-    flag_no_langs:s4?1:0,flag_no_chrome:s5?1:0,flag_in_iframe:s6?1:0
-  })})
 
-  // ✅ admin_track: sessionStorage key 방식 (URL에 비밀번호 노출 없음)
-  const urlParams=new URLSearchParams(location.search)
-  const adminTrackKey=urlParams.get('admin_track')
-  if(adminTrackKey&&adminTrackKey.startsWith('admin_track_')){
-    const raw=sessionStorage.getItem(adminTrackKey)
-    if(raw){
+  const urlParams = new URLSearchParams(location.search)
+  const adminTrackKey = urlParams.get('admin_track')
+  if (adminTrackKey && adminTrackKey.startsWith('admin_track_')) {
+    const raw = sessionStorage.getItem(adminTrackKey)
+    if (raw) {
       sessionStorage.removeItem(adminTrackKey)
-      try{
-        const{id,name,password}=JSON.parse(raw)
-        if(id&&name&&password){
-          history.replaceState(null,'','/#track')
+      try {
+        const { id, name, password } = JSON.parse(raw)
+        if (id && name && password) {
+          history.replaceState(null, '', '/#track')
           showPage('track')
-          submitAuthPage(id,{id,name,password})
+          submitAuthPage(id, { id, name, password })
           return
         }
-      }catch(e){}
+      } catch (e) {}
     }
   }
 
-  const pending=sessionStorage.getItem('pending_inquiry')
-  if(pending){
+  const pending = sessionStorage.getItem('pending_inquiry')
+  if (pending) {
     sessionStorage.removeItem('pending_inquiry')
-    try{
-      const{id,name,password}=JSON.parse(pending)
+    try {
+      const { id, name, password } = JSON.parse(pending)
       showPage('track')
-      submitAuthPage(id,{id,name,password})
-    }catch(e){}
-  }else if(location.hash==='#track'){
-    showPage('track')
+      submitAuthPage(id, { id, name, password })
+    } catch (e) {}
+    return
   }
+
+  // hash 기반 초기 페이지 라우팅
+  const hash = location.hash
+  if (hash === '#track') showPage('track')
+  else if (hash === '#services') showPage('services')
+  else if (hash === '#contact') showPage('contact')
 })()

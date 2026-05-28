@@ -1,9 +1,8 @@
-import type { Env, Service, ServicePage, ServiceImage, Visitor, Inquiry, Notice, InquiryMessage } from '../types'
+import type { Env, Service, ServicePage, Visitor, Inquiry, Notice, InquiryMessage } from '../types'
 
 const now = () => new Date().toISOString()
 const expires = () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
 
-// ─── Services ───────────────────────────────────────────
 export const db = {
   services: {
     list: (env: Env) =>
@@ -38,23 +37,17 @@ export const db = {
     get: (env: Env, service_id: number) =>
       env.my_services_db.prepare('SELECT * FROM service_pages WHERE service_id=?').bind(service_id).first<ServicePage>(),
 
-    upsert: (env: Env, service_id: number, html_content: string) =>
+    upsert: (env: Env, service_id: number, data: { head_content: string; body_content: string; script_content: string }) =>
       env.my_services_db.prepare(
-        `INSERT INTO service_pages (service_id,html_content,version,updated_at) VALUES (?,?,1,?)
-         ON CONFLICT(service_id) DO UPDATE SET html_content=excluded.html_content, version=version+1, updated_at=excluded.updated_at`
-      ).bind(service_id, html_content, now()).run(),
-  },
-
-  // ─── Service Images ──────────────────────────────────
-  images: {
-    list: (env: Env, service_id: number) =>
-      env.my_services_db.prepare('SELECT * FROM service_images WHERE service_id=? ORDER BY sort_order ASC').bind(service_id).all<ServiceImage>(),
-
-    create: (env: Env, service_id: number, image_url: string, sort_order: number) =>
-      env.my_services_db.prepare('INSERT INTO service_images (service_id,image_url,sort_order,created_at) VALUES (?,?,?,?)').bind(service_id, image_url, sort_order, now()).run(),
-
-    delete: (env: Env, id: number) =>
-      env.my_services_db.prepare('DELETE FROM service_images WHERE id=?').bind(id).run(),
+        `INSERT INTO service_pages (service_id, head_content, body_content, script_content, version, updated_at)
+         VALUES (?, ?, ?, ?, 1, ?)
+         ON CONFLICT(service_id) DO UPDATE SET
+           head_content   = excluded.head_content,
+           body_content   = excluded.body_content,
+           script_content = excluded.script_content,
+           version        = version + 1,
+           updated_at     = excluded.updated_at`
+      ).bind(service_id, data.head_content, data.body_content, data.script_content, now()).run(),
   },
 
   // ─── Visitors ────────────────────────────────────────
@@ -101,6 +94,13 @@ export const db = {
          ORDER BY i.created_at DESC LIMIT ? OFFSET ?`
       ).bind(limit, offset).all<Inquiry & { service_title: string }>(),
 
+    listWithDecryptable: (env: Env, limit = 100) =>
+      env.my_services_db.prepare(
+        `SELECT i.*, s.title as service_title FROM inquiries i
+         LEFT JOIN services s ON i.service_id=s.id
+         ORDER BY i.created_at DESC LIMIT ?`
+      ).bind(limit).all<Inquiry & { service_title: string }>(),
+
     get: (env: Env, id: number) =>
       env.my_services_db.prepare(
         `SELECT i.*, s.title as service_title FROM inquiries i
@@ -113,7 +113,7 @@ export const db = {
     count: (env: Env) =>
       env.my_services_db.prepare('SELECT COUNT(*) as count FROM inquiries').first<{ count: number }>(),
 
-    create: (env: Env, data: { service_id: number; visitor_id: number | null; name: string; contact: string; password: string | null; content: string; owner_token?: string; owner_ip?: string }) =>
+    create: (env: Env, data: { service_id: number | null; visitor_id: number | null; name: string; contact: string; password: string | null; content: string; owner_token?: string; owner_ip?: string }) =>
       env.my_services_db.prepare(
         'INSERT INTO inquiries (service_id,visitor_id,name,contact,password,content,owner_token,owner_ip,created_at) VALUES (?,?,?,?,?,?,?,?,?)'
       ).bind(data.service_id, data.visitor_id, data.name, data.contact, data.password, data.content, data.owner_token ?? null, data.owner_ip ?? null, now()).run(),
@@ -127,16 +127,19 @@ export const db = {
     updateStatus: (env: Env, id: number, status: string) =>
       env.my_services_db.prepare('UPDATE inquiries SET status=? WHERE id=?').bind(status, id).run(),
 
-    purgeOldest: (env: Env, n: number) =>
+    // 원자적 처리: count 조회와 삭제를 단일 쿼리로
+    purgeOldestIfNeeded: (env: Env, max: number, purgeCount: number) =>
       env.my_services_db.prepare(
-        'DELETE FROM inquiries WHERE id IN (SELECT id FROM inquiries ORDER BY created_at ASC LIMIT ?)'
-      ).bind(n).run(),
+        `DELETE FROM inquiries WHERE id IN (
+           SELECT id FROM inquiries ORDER BY created_at ASC LIMIT
+           CASE WHEN (SELECT COUNT(*) FROM inquiries) >= ? THEN ? ELSE 0 END
+         )`
+      ).bind(max, purgeCount).run(),
 
-    // ─── Inquiry Messages ───
     getMessages: (env: Env, inquiry_id: number) =>
       env.my_services_db.prepare('SELECT * FROM inquiry_messages WHERE inquiry_id=? ORDER BY created_at ASC').bind(inquiry_id).all<InquiryMessage>(),
 
-    createMessage: (env: Env, data: { inquiry_id: number; sender_role: string; content: string; sender_ip?: string; sender_token?: string }) =>
+    createMessage: (env: Env, data: { inquiry_id: number; sender_role: string; content: string; sender_ip?: string | null; sender_token?: string | null }) =>
       env.my_services_db.prepare(
         'INSERT INTO inquiry_messages (inquiry_id,sender_role,content,sender_ip,sender_token,created_at) VALUES (?,?,?,?,?,?)'
       ).bind(data.inquiry_id, data.sender_role, data.content, data.sender_ip ?? null, data.sender_token ?? null, now()).run(),
@@ -162,5 +165,29 @@ export const db = {
 
     delete: (env: Env, id: number) =>
       env.my_services_db.prepare('DELETE FROM notices WHERE id=?').bind(id).run(),
+  },
+
+  // ─── Dashboard 전용 집계 ──────────────────────────────
+  dashboard: {
+    summary: (env: Env) =>
+      Promise.all([
+        env.my_services_db.prepare(
+          `SELECT COUNT(*) as total,
+            COUNT(CASE WHEN date(visited_at)=date('now') THEN 1 END) as today,
+            COUNT(CASE WHEN bot_verdict='BOT' THEN 1 END) as bots
+           FROM visitors`
+        ).first<{ total: number; today: number; bots: number }>(),
+        env.my_services_db.prepare(
+          `SELECT COUNT(*) as total, COUNT(CASE WHEN is_read=0 THEN 1 END) as unread FROM inquiries`
+        ).first<{ total: number; unread: number }>(),
+        env.my_services_db.prepare(
+          `SELECT COUNT(*) as total, COUNT(CASE WHEN is_active=1 THEN 1 END) as active FROM services`
+        ).first<{ total: number; active: number }>(),
+        env.my_services_db.prepare(
+          `SELECT date(visited_at) as date, COUNT(*) as count
+           FROM visitors WHERE visited_at >= date('now', '-7 days')
+           GROUP BY date(visited_at) ORDER BY date ASC`
+        ).all<{ date: string; count: number }>(),
+      ]),
   },
 }

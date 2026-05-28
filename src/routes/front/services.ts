@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { db } from '../../lib/db'
+import { Layout } from '../../views/front/layout'
 import { InquiryWidget } from '../../views/front/components/inquiry-widget'
 import type { Env } from '../../types'
 
@@ -24,33 +25,40 @@ services.get('/:id', async (c) => {
 
   if (!service || !service.is_active) return c.notFound()
 
-  const baseHtml = page?.html_content ?? `<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>${esc(service.title)}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
-  <style>
-    :root{--bg:#e8e8e3;--text:#1c1c1a;--text2:#5a5a54;}
-    *{margin:0;padding:0;box-sizing:border-box;}
-    body{background:var(--bg);color:var(--text);font-family:'Mona Sans',-apple-system,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;}
-    .empty{text-align:center;padding:60px 20px;}
-    h1{font-size:32px;font-weight:600;letter-spacing:-1px;margin-bottom:10px;}
-    p{color:var(--text2);font-size:15px;}
-  </style>
-</head>
-<body>
-  <div class="empty">
-    <h1>${esc(service.title)}</h1>
-    <p>서비스 페이지를 준비 중입니다.</p>
-  </div>
-</body>
-</html>`
+  // ── 페이지 데이터가 있으면 세 버킷 조립, 없으면 기본 콘텐츠 ──
+  let bodyContent: string
+  let headContent = ''
+  let scriptContent = ''
 
-  const widget = InquiryWidget(id)
-  const injected = baseHtml.replace('</body>', `${widget}</body>`)
-  return c.html(injected)
+  if (page?.body_content) {
+    bodyContent = page.body_content
+    headContent = page.head_content ?? ''
+    scriptContent = page.script_content ?? ''
+  } else {
+    // 페이지 미등록 시 기본 안내 콘텐츠
+    bodyContent = `
+      <div style="min-height:60vh;display:flex;align-items:center;justify-content:center;padding:60px 20px;text-align:center;">
+        <div>
+          <h1 style="font-family:'Instrument Serif',serif;font-size:36px;letter-spacing:-0.8px;margin-bottom:12px;">${esc(service.title)}</h1>
+          <p style="color:var(--text2);font-size:15px;">서비스 페이지를 준비 중입니다.</p>
+        </div>
+      </div>
+    `
+  }
+
+  // InquiryWidget 주입 (body 콘텐츠 뒤에 추가)
+  const widget = String(InquiryWidget(id))
+  const finalBody = bodyContent + widget
+
+  return c.html(
+    String(Layout(finalBody, {
+      serviceMode: true,
+      serviceId: id,
+      serviceTitle: service.title,
+      headContent,
+      scriptContent,
+    }))
+  )
 })
 
 export default services

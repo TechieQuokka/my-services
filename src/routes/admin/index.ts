@@ -1,16 +1,14 @@
 import { Hono } from 'hono'
 import { APP_VERSION } from '../../types'
 import { adminLayout, pageHeader } from '../../views/admin/layout'
+import { db } from '../../lib/db'
 import type { Env } from '../../types'
 
 const adminIndex = new Hono<{ Bindings: Env }>()
 
 adminIndex.get('/', async (c) => {
-  const [visitors, inquiries, services, daily] = await Promise.all([
-    c.env.my_services_db.prepare(`SELECT COUNT(*) as total, COUNT(CASE WHEN date(visited_at)=date('now') THEN 1 END) as today, COUNT(CASE WHEN bot_verdict='BOT' THEN 1 END) as bots FROM visitors`).first<{ total: number; today: number; bots: number }>(),
-    c.env.my_services_db.prepare(`SELECT COUNT(*) as total, COUNT(CASE WHEN is_read=0 THEN 1 END) as unread FROM inquiries`).first<{ total: number; unread: number }>(),
-    c.env.my_services_db.prepare(`SELECT COUNT(*) as total, COUNT(CASE WHEN is_active=1 THEN 1 END) as active FROM services`).first<{ total: number; active: number }>(),
-    c.env.my_services_db.prepare(`SELECT date(visited_at) as date, COUNT(*) as count FROM visitors WHERE visited_at >= date('now', '-7 days') GROUP BY date(visited_at) ORDER BY date ASC`).all<{ date: string; count: number }>(),
+  const [[visitors, inquiries, services, daily]] = await Promise.all([
+    db.dashboard.summary(c.env),
   ])
 
   const body = `

@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.3.15'
+export const APP_VERSION = 'v1.3.40'
 
 export interface InquiryMessage {
   id: number
@@ -27,17 +27,11 @@ export interface Service {
 export interface ServicePage {
   id: number
   service_id: number
-  html_content: string
+  head_content: string | null
+  body_content: string | null
+  script_content: string | null
   version: number
   updated_at: string
-}
-
-export interface ServiceImage {
-  id: number
-  service_id: number
-  image_url: string
-  sort_order: number
-  created_at: string
 }
 
 export interface Visitor {
@@ -74,7 +68,7 @@ export interface Visitor {
 
 export interface Inquiry {
   id: number
-  service_id: number
+  service_id: number | null
   visitor_id: number | null
   name: string
   contact: string
@@ -108,7 +102,7 @@ export interface Notice {
 
 export interface Env {
   my_services_db: D1Database
-  RATE_LIMIT_KV: KVNamespace   // Rate Limiting용 KV
+  RATE_LIMIT_KV: KVNamespace
   MASTER_KEY: string
   ADMIN_PASSWORD: string
   IMAGEKIT_PRIVATE_KEY: string
