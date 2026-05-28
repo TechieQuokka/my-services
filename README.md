@@ -1,4 +1,4 @@
-# My Services v1.3.15
+# My Services v1.3.36
 
 A professional service management and promotion platform built with **Hono** and **Cloudflare Workers**. Designed for high performance, security, and edge-native scalability.
 
@@ -7,10 +7,11 @@ A professional service management and promotion platform built with **Hono** and
 - **Service Management (CRUD)**:
   - Categorized service listings (`webdev`, `ai`).
   - Dynamic thumbnails (Upload to ImageKit or external URL).
-  - Rich HTML content support for service-specific landing pages.
-- **Advanced Visitor Analytics**:
+  - Rich HTML content support with advanced parsing for service-specific landing pages.
+- **Enhanced Visitor Analytics**:
   - **Fingerprinting**: Tracks unique visitor sessions without invasive cookies.
   - **Bot Detection**: Multi-factor heuristic scoring and automated verdict.
+  - **Visit Tracking**: Dedicated `visitTracker` library for granular traffic analysis.
   - **Granular Logging**: Captures device specs (OS, Browser, Screen), performance metrics (CPU, RAM), and network info.
 - **Secure Inquiry System**:
   - **Threaded Messaging**: Full conversation history between admin and users.
@@ -18,8 +19,8 @@ A professional service management and promotion platform built with **Hono** and
   - **Read Receipts**: Admin can track when inquiries were viewed.
 - **Robust Admin Dashboard**:
   - **Secure Auth**: PBKDF2 hashed password protection with custom middleware.
-  - **Statistics**: Visualized traffic data, bot ratios, and device distribution.
-  - **Content Management**: Complete control over services, notices, and inquiries.
+  - **Statistics**: Visualized traffic data, bot ratios, and device distribution via `manage/stats`.
+  - **Content Management**: Complete control over services, notices, and inquiries with specialized management routes.
 - **Security & Infrastructure**:
   - **Rate Limiting**: Integrated using Cloudflare KV to prevent abuse.
   - **Field Encryption**: Sensitive API keys and tokens stored with AES-GCM encryption.
@@ -40,9 +41,9 @@ A professional service management and promotion platform built with **Hono** and
 ```text
 src/
 ├── index.ts          # Application entry point & Cron handler
-├── lib/              # Core libraries (DB, Crypto, ImageKit, RateLimit)
+├── lib/              # Core libraries (DB, Crypto, ImageKit, RateLimit, htmlParser, visitTracker)
 ├── middleware/       # Auth and security middlewares
-├── routes/           # Hono route definitions (API, Admin, Front-end)
+├── routes/           # Hono route definitions (API, Admin, Front-end, Management)
 ├── types/            # TypeScript interfaces and global constants
 ├── views/            # Layouts and UI components
 └── static/           # Client-side assets (JS/CSS)
