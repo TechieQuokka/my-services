@@ -1,4 +1,4 @@
-# My Services v1.3.36
+# My Services v1.3.40
 
 A professional service management and promotion platform built with **Hono** and **Cloudflare Workers**. Designed for high performance, security, and edge-native scalability.
 
@@ -7,7 +7,8 @@ A professional service management and promotion platform built with **Hono** and
 - **Service Management (CRUD)**:
   - Categorized service listings (`webdev`, `ai`).
   - Dynamic thumbnails (Upload to ImageKit or external URL).
-  - Rich HTML content support with advanced parsing for service-specific landing pages.
+  - Rich HTML content support with advanced parsing (`htmlParser`) for service-specific landing pages.
+  - **Auto-UI Optimization**: Includes `fixBodyOverflow` to prevent layout shifts and `fixVh` for consistent viewport heights across devices.
 - **Enhanced Visitor Analytics**:
   - **Fingerprinting**: Tracks unique visitor sessions without invasive cookies.
   - **Bot Detection**: Multi-factor heuristic scoring and automated verdict.
