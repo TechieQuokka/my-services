@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.3.46'
+export const APP_VERSION = 'v1.3.51'
 
 export interface InquiryMessage {
   id: number

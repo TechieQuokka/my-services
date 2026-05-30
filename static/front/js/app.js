@@ -5,6 +5,15 @@ function showPage(name) {
   document.querySelector('[data-page="' + name + '"]')?.classList.add('active')
   window.scrollTo(0, 0)
 
+  // URL 해시 업데이트 (새로고침 시 해당 페이지 유지를 위함)
+  if (name === 'home') {
+    if (location.hash) {
+      history.replaceState(null, '', location.pathname + location.search)
+    }
+  } else {
+    history.replaceState(null, '', '#' + name)
+  }
+
   if (name === 'track') {
     document.getElementById('board-list-view').style.display = 'block'
     document.getElementById('board-detail-view').style.display = 'none'
@@ -50,7 +59,6 @@ async function submitContact() {
     if (res.ok) {
       const data = await res.json()
       lastAuth = { id: data.id, name, password }
-      // 문의 성공 후 track 페이지로 이동하여 상세 바로 표시
       showPage('track')
       await submitAuthPage(data.id, lastAuth)
     } else {
@@ -66,7 +74,7 @@ async function submitContact() {
 // ── loadBoard TTL 캐시 (30초) ─────────────────────────────────────
 let _boardCache = null
 let _boardCacheAt = 0
-const BOARD_TTL = 30 * 1000 // 30초
+const BOARD_TTL = 30 * 1000
 
 async function loadBoard(force = false) {
   const now = Date.now()
@@ -159,7 +167,12 @@ async function submitAuthPage(id, manualCreds = null, skipScroll = false) {
       messages: messages
     }, skipScroll)
   } else {
-    alert('인증에 실패했습니다. 이름 또는 비밀번호를 확인해주세요.')
+    const status = res.status
+    if (status === 429) {
+      alert('요청이 너무 많습니다. 잠시 후 다시 시도해주세요.')
+    } else {
+      alert('인증에 실패했습니다. 이름 또는 비밀번호를 확인해주세요.')
+    }
   }
 }
 
@@ -240,7 +253,6 @@ async function submitReply(id) {
     })
   })
   if (res.ok) {
-    // 댓글 등록 후 캐시 무효화 (새 댓글이 board에 반영되도록)
     _boardCache = null
     await submitAuthPage(id, lastAuth, true)
   } else {
@@ -269,7 +281,6 @@ async function viewNoticePopup(id) {
 
 function closeModal() { document.getElementById('detail-modal-overlay').classList.remove('open') }
 
-// 초기화 (visit 추적은 layout.ts에서 buildVisitScript로 주입)
 ;(function () {
   loadNotices()
 
@@ -302,7 +313,6 @@ function closeModal() { document.getElementById('detail-modal-overlay').classLis
     return
   }
 
-  // hash 기반 초기 페이지 라우팅
   const hash = location.hash
   if (hash === '#track') showPage('track')
   else if (hash === '#services') showPage('services')

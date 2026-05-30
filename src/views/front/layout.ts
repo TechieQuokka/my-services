@@ -2,7 +2,6 @@ import { html, raw } from 'hono/html'
 import { styles } from './styles'
 import { APP_VERSION } from '../../types'
 import { buildVisitScript } from '../../lib/visitTracker'
-
 export interface LayoutOptions {
   serviceMode?: boolean
   serviceId?: number
@@ -10,7 +9,6 @@ export interface LayoutOptions {
   headContent?: string
   scriptContent?: string
 }
-
 const ServiceNav = () => `
   <div class="nav">
     <a class="nav-btn" href="/">Home</a>
@@ -19,7 +17,6 @@ const ServiceNav = () => `
     <a class="nav-cta" href="/#contact">문의하기</a>
   </div>
 `
-
 const HomeNav = () => `
   <div class="nav">
     <button class="nav-btn active" data-page="home" onclick="showPage('home')">Home</button>
@@ -28,13 +25,11 @@ const HomeNav = () => `
     <button class="nav-cta" onclick="showPage('contact')">문의하기</button>
   </div>
 `
-
 export const Layout = (content: any, options: LayoutOptions = {}) => {
   const { serviceMode = false, serviceId, serviceTitle, headContent = '', scriptContent = '' } = options
   const title = serviceMode && serviceTitle
     ? `${serviceTitle} — Adam Software`
     : 'Adam Software — 웹개발 & AI 자동화'
-
   return html`<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -47,7 +42,7 @@ export const Layout = (content: any, options: LayoutOptions = {}) => {
   ${serviceMode && headContent ? raw(headContent) : ''}
 </head>
 <body ${raw(serviceMode ? 'class="service-mode"' : '')}>
-  <div id="notice-bar-container"></div>
+  ${!serviceMode ? raw('<div id="notice-bar-container"></div>') : ''}
   <header>
     <div class="header-inner">
       <a href="/" class="logo">
@@ -67,31 +62,24 @@ export const Layout = (content: any, options: LayoutOptions = {}) => {
       ${raw(serviceMode ? ServiceNav() : HomeNav())}
     </div>
   </header>
-
   <div class="page-wrap">
     ${serviceMode
       ? raw(`<div class="service-detail-wrap">${content}</div>`)
       : content
     }
   </div>
-
   ${!serviceMode ? html`
   <div id="detail-modal-overlay" class="modal-overlay">
     <div class="detail-modal" id="detail-modal"></div>
   </div>` : ''}
-
   <footer>
     <div class="footer-inner">
       <span class="footer-brand">Adam Software <small style="opacity:.5;font-weight:400;margin-left:8px;">${APP_VERSION}</small></span>
       <span class="footer-copy">© 2026 · Built on Cloudflare Workers</span>
     </div>
   </footer>
-
   <script src="/front/js/app.js"></script>
-
   ${serviceMode && scriptContent ? raw(`<script>${scriptContent}</script>`) : ''}
-
-  <!-- visit 추적: 홈(service_id=null)과 서비스 상세 모두 동일한 모듈 사용 -->
   ${raw(`<script>${buildVisitScript(serviceMode && serviceId ? serviceId : null)}</script>`)}
 </body>
 </html>`

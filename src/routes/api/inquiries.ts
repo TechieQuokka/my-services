@@ -18,7 +18,6 @@ inquiries.post('/', async (c) => {
     if (!name || !contact || !content || !password)
       return c.json({ ok: false, error: '모든 필수 항목을 입력해주세요.' }, 400)
 
-    // 원자적 처리: 150개 이상이면 50개 자동 삭제
     await db.inquiries.purgeOldestIfNeeded(c.env, 150, 50)
 
     const contactEnc = await encrypt(contact, c.env.MASTER_KEY)
@@ -56,7 +55,6 @@ inquiries.get('/board', async (c) => {
     ORDER BY i.created_at DESC LIMIT 50
   `).all<any>()
 
-  // notice는 상단 고정, 그 아래 inquiry를 created_at DESC로 정렬 보장
   const noticeItems = notices.map((n: any) => ({
     id: n.id,
     service_title: 'Notice',
@@ -70,7 +68,6 @@ inquiries.get('/board', async (c) => {
 
   const inquiryItems = inquiriesList.map((i: any) => ({
     id: i.id,
-    // service_title은 카테고리 수준으로만 노출 (구체적 서비스명 마스킹 아님 — 정책상 유지)
     service_title: i.service_title ?? '—',
     name: i.name.length > 2
       ? i.name[0] + '*'.repeat(i.name.length - 2) + i.name[i.name.length - 1]
@@ -81,7 +78,6 @@ inquiries.get('/board', async (c) => {
     is_notice: 0,
   }))
 
-  // notice 먼저, inquiry는 created_at DESC 정렬 보장
   const final = [
     ...noticeItems,
     ...inquiryItems.sort((a: any, b: any) =>
@@ -96,7 +92,8 @@ inquiries.get('/board', async (c) => {
 inquiries.post('/track/detail', async (c) => {
   const ip = c.req.header('cf-connecting-ip') || '0.0.0.0'
 
-  const { limited } = await rateLimit(c.env, `rl:track:${ip}`, 10, 60 * 5)
+  // 30회 / 5분으로 상향 (자동 인증 흐름에서 소진 방지)
+  const { limited } = await rateLimit(c.env, `rl:track:${ip}`, 30, 60 * 5)
   if (limited) return c.json({ ok: false, error: '너무 많은 요청입니다. 잠시 후 다시 시도해주세요.' }, 429)
 
   const { id, name, password } = await c.req.json()
