@@ -60,6 +60,7 @@ export const styles = `
     .service-detail-wrap{
       position:relative;
       isolation:isolate;
+      overflow-x:clip;
     }
 
     /* ── HOME HERO ── */
@@ -242,6 +243,12 @@ export const styles = `
     .footer-inner{max-width:1120px;margin:0 auto;padding:20px 40px;display:flex;align-items:center;justify-content:space-between;}
     .footer-brand{font-size:14px;font-weight:600;color:var(--text2);}
     .footer-copy{font-size:13px;color:var(--text3);}
+
+    /* ── 서비스 상세 페이지 hero 충돌 방지 ── */
+    body.service-mode .hero {
+      max-width: none;
+      margin: 0;
+    }
 
     /* RESPONSIVE */
     @media(max-width:900px){

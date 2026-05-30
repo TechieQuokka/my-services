@@ -1,10 +1,14 @@
 /**
  * htmlParser.ts
- * v1.3.40 — fixBodyOverflow 추가: body에 overflow-y:clip 자동 주입
- *           position:absolute 요소가 컨테이너 밖으로 나가
- *           html scrollHeight를 늘려 하단 빈 여백이 생기는 문제 방지
- * v1.3.39 — fixVh 추가: vh 단위를 dvh로 치환하여 서비스 상세 페이지의 여백 버그 수정
- *           applyPrefix 중복 실행 제거, scopeStyles 재귀 시 stripCssComments 스킵
+ * v1.3.46 — extractNames varRe 제거: let/const/var 변수명을 prefix 대상에서 제외,
+ *           함수 선언만 전역 노출되므로 함수명만 prefix 적용
+ * v1.3.43 — applyPrefix 문자열 리터럴 보호:
+ *           따옴표/백틱 안의 문자열을 플레이스홀더로 치환 후
+ *           prefix 적용, 복원하여 클래스명 등 오염 방지
+ * v1.3.42 — fixBodyOverflow 세미콜론 누락 버그 수정
+ * v1.3.41 — fixVh: 100vh → calc(100dvh - 64px)
+ * v1.3.40 — fixBodyOverflow 추가
+ * v1.3.39 — fixVh 추가, applyPrefix 중복 실행 제거
  */
 
 export function makePrefix(serviceId: number): string {
@@ -30,29 +34,24 @@ function fixOverflowX(css: string): string {
   return css.replace(/overflow-x:\s*hidden/g, 'overflow-x: clip')
 }
 
-// vh → dvh 치환: min-height, height, max-height 등 모든 vh 단위
-// dvh는 브라우저 실제 가용 높이(주소창/탭바 제외) 기준이라
-// header/footer가 있는 레이아웃에서 여백 버그를 방지함
 function fixVh(css: string): string {
-  return css.replace(/(\d*\.?\d+)vh/g, '$1dvh')
+  return css.replace(/(\d*\.?\d+)vh/g, (_, n) => {
+    const val = parseFloat(n)
+    if (val === 100) return 'calc(100dvh - 64px)'
+    return `${n}dvh`
+  })
 }
 
-// body에 overflow-y: clip 자동 주입
-// position:absolute/fixed 요소가 .service-detail-wrap 밖으로 삐져나가
-// html scrollHeight를 늘려 하단에 빈 여백이 생기는 문제를 방지
-// - body { ... } 블록이 있으면 overflow-y 가 없을 때만 추가
-// - body 블록 자체가 없으면 끝에 body { overflow-y: clip } 주입
 function fixBodyOverflow(css: string): string {
   const hasBodyBlock = /\bbody\s*\{/.test(css)
-
   if (hasBodyBlock) {
     return css.replace(/(\bbody\s*\{)([^}]*)(})/g, (_, open, inner, close) => {
-      if (/overflow-y/.test(inner)) return _ // 이미 있으면 그대로
-      return `${open}${inner}overflow-y: clip;\n${close}`
+      if (/overflow-y/.test(inner)) return _
+      const trimmed = inner.trimEnd()
+      const separator = trimmed.endsWith(';') ? '' : ';'
+      return `${open}${inner}${separator}overflow-y: clip;\n${close}`
     })
   }
-
-  // body 블록 없으면 끝에 주입
   return css + '\nbody { overflow-y: clip; }'
 }
 
@@ -60,7 +59,6 @@ function stripCssComments(css: string): string {
   return css.replace(/\/\*[\s\S]*?\*\//g, '')
 }
 
-// stripped: 이미 주석 제거된 상태로 재귀 진입 시 true → stripCssComments 스킵
 function scopeStyles(css: string, stripped = false): string {
   if (!stripped) {
     css = stripCssComments(css)
@@ -76,7 +74,6 @@ function scopeStyles(css: string, stripped = false): string {
   while (i < css.length) {
     const remaining = css.slice(i)
 
-    // @keyframes, @font-face — 내부 건드리지 않고 통째로 통과
     const atRawMatch = remaining.match(/^(@(?:keyframes|font-face)[^{]*\{)/)
     if (atRawMatch) {
       let depth = 1
@@ -91,7 +88,6 @@ function scopeStyles(css: string, stripped = false): string {
       continue
     }
 
-    // @media, @supports, @layer — 헤더 그대로, 내부 재귀 스코프 (stripped=true 전달)
     const atBlockMatch = remaining.match(/^(@(?:media|supports|layer)[^{]*\{)/)
     if (atBlockMatch) {
       const atHeader = atBlockMatch[1]
@@ -110,7 +106,6 @@ function scopeStyles(css: string, stripped = false): string {
       continue
     }
 
-    // 일반 셀렉터 { ... }
     const blockMatch = remaining.match(/^([^{}@]+)\{/)
     if (blockMatch) {
       const selector = blockMatch[1].trim()
@@ -162,14 +157,11 @@ function extractBody(html: string): { bodyContent: string; scripts: string[] } {
   return { bodyContent, scripts }
 }
 
-// 함수명/변수명 추출 헬퍼 (중복 제거)
 function extractNames(code: string): Set<string> {
   const names = new Set<string>()
   let m: RegExpExecArray | null
   const funcRe = /\bfunction\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g
-  const varRe = /^\s*(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm
   while ((m = funcRe.exec(code)) !== null) names.add(m[1])
-  while ((m = varRe.exec(code)) !== null) names.add(m[1])
   return names
 }
 
@@ -178,10 +170,27 @@ function applyPrefix(scripts: string[], prefix: string): { code: string; names: 
   const combined = scripts.join('\n\n')
   const names = extractNames(combined)
   if (!names.size) return { code: combined, names }
-  let result = combined
+
+  const literals: string[] = []
+  const placeholder = '\x00STR\x00'
+  const withPlaceholders = combined.replace(
+    /(`[\s\S]*?`|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,
+    (match) => {
+      literals.push(match)
+      return `${placeholder}${literals.length - 1}${placeholder}`
+    }
+  )
+
+  let result = withPlaceholders
   for (const name of names) {
     result = result.replace(new RegExp(`\\b${name}\\b`, 'g'), `${prefix}${name}`)
   }
+
+  result = result.replace(
+    new RegExp(`${placeholder}(\\d+)${placeholder}`, 'g'),
+    (_, idx) => literals[Number(idx)]
+  )
+
   return { code: result, names }
 }
 
@@ -207,7 +216,6 @@ export function parseServiceHtml(html: string, serviceId: number): ParsedPage {
   const head_content = extractHead(html)
   const { bodyContent, scripts } = extractBody(html)
 
-  // applyPrefix 한 번만 실행 — names 재사용
   const { code: script_content, names } = applyPrefix(scripts, prefix)
   const body_content = applyPrefixToHtml(bodyContent, prefix, names)
 
